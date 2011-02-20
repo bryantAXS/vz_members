@@ -41,6 +41,10 @@ If you need more control over the output, use the tag pair.
 
 `backspace="2"` - Remove the last _x_ characters from the final iteration.
 
+`prefix="test"` - Adds prefix to the variable name, to avoid conflicts with other parsed tags.  Example: prefix="test" -- {test_username}
+
+`custom_member_field="custom_member_field_1|custom_member_field_2"` - Allows you to get custom member field data.
+
 #### Variables ####
 
 `id` - The id of the current member.
@@ -52,6 +56,8 @@ If you need more control over the output, use the tag pair.
 `group_id` - The id of the group to which the current member belongs.
 
 `count` - The number of the current iteration.
+
+`email` - Email of the member.
 
 `total_results` - The total number of members selected.
 

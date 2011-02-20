@@ -3,7 +3,7 @@
 /**
  * VZ Members Class
  *
- * @author    Eli Van Zoeren <eli@elivz.com>
+ * @author    Eli Van Zoeren <eli@elivz.com> and Bryant Hughes <bryant@thegoodlab.com>
  * @copyright Copyright (c) 2009-2010 Eli Van Zoeren
  * @license   http://creativecommons.org/licenses/by-sa/3.0/ Attribution-Share Alike 3.0 Unported
  */
@@ -338,24 +338,22 @@ class Vz_members_ft extends EE_Fieldtype {
     /**
     * Get names of a list of members
     */
-    function _get_member_names($members, $orderby, $sort)
+    function _get_member_names($members, $orderby, $sort, $custom_member_fields = false)
     {
         // Prepare parameters for SQL query
         $member_list = str_replace('|', ',', $members);
         if (!$member_list) $member_list = -1;
         $sort = (strtolower($sort) == 'desc') ? 'DESC' : 'ASC';
         $orderby = ($orderby == 'username' || $orderby == 'screen_name' || $orderby == 'group_id') ? $orderby : 'member_id';
-        
+              
         // Only hit the database once per pageload
         if ( !isset($this->cache['members'][$member_list][$orderby][$sort]) )
         {
+            //get dynamic sql statement
+            $sql = $this->build_member_query($member_list, $orderby, $sort, $custom_member_fields);
+            
             // Get the names of the members
-            $this->cache['members'][$member_list][$orderby][$sort] = $this->EE->db->query("
-                SELECT member_id, group_id, username, screen_name
-                FROM exp_members 
-                WHERE member_id IN ($member_list)
-                ORDER BY $orderby $sort
-                ")->result_array();
+            $this->cache['members'][$member_list][$orderby][$sort] = $this->EE->db->query($sql)->result_array();
         }
         
         return $this->cache['members'][$member_list][$orderby][$sort];
@@ -372,19 +370,45 @@ class Vz_members_ft extends EE_Fieldtype {
     	}
     	else // Tag pair
     	{
+            
+            //if there are custom fields being passed in
+            $custom_member_fields= array();
+            if(isset($params['custom_member_field'])){
+              
+              $fields = explode('|', $params['custom_member_field']);
+              
+              foreach($fields as $field){
+                //get the field_id associated to the custom member field
+                if($field_id = $this->switch_custom_field_id($field)){
+                  $custom_member_fields[$field] = $field_id;
+                }
+              }
+            }
+            
             // Get the member info
-            $members = $this->_get_member_names($field_data, $params['orderby'], $params['sort']);
+            $members = $this->_get_member_names($field_data, $params['orderby'], $params['sort'], $custom_member_fields);
+            
+            //check and see if there is a prefix, to avoid conflicts with other variables
+            $prefix = isset($params['prefix']) ? $params['prefix'] . '_' : '';
             
             $variables = array();
             foreach ($members as $member)
             {
-                // Prepare the variables for replacement
-                $variables[] = array(
-                    'id' => $member['member_id'],
-                    'group' => $member['group_id'],
-                    'username' => $member['username'],
-                    'screen_name' => $member['screen_name']
-                );
+                //Prepare the variables for replacement
+                $var_array = array();
+                $var_array[$prefix . 'id'] = $member['member_id'];
+                $var_array[$prefix . 'group'] = $member['group_id'];
+                $var_array[$prefix . 'username'] = $member['username'];
+                $var_array[$prefix . 'screen_name'] = $member['screen_name'];
+                $var_array[$prefix . 'email'] = $member['email'];
+                
+                if(count($custom_member_fields)){
+                  foreach($custom_member_fields as $field =>$key){
+                    $var_array[$prefix . $field] = $member[$field];
+                  }
+                }
+                
+                $variables[] = $var_array;
             }
             
             $output = $this->EE->TMPL->parse_variables($tagdata, $variables);
@@ -397,6 +421,59 @@ class Vz_members_ft extends EE_Fieldtype {
             
             return $output;
     	}
+    }
+    
+    /*
+    * Query to get field_id for the custom member field... returns the field_id or false
+    */
+    function switch_custom_field_id($custom_field_name){
+      
+      // Only hit the database once per pageload
+      if ( !isset($this->cache['members'][$custom_field_name]) )
+      {
+          // Get the names of the members
+          $results = $this->EE->db->query("
+              SELECT m.m_field_id
+              FROM exp_member_fields m
+              WHERE m_field_name = '$custom_field_name'
+              ");
+          
+          if($results->num_rows() > 0){
+            $row = $results->row();
+            $this->cache['members'][$custom_field_name] = $row->m_field_id;
+          }else{
+            $this->cache['members'][$custom_field_name] = false;
+          }
+          
+      }
+      return $this->cache['members'][$custom_field_name];
+    }
+    
+    /*
+    *  Builds query to get data associated member fields
+    */
+    function build_member_query($member_list, $orderby, $sort, $custom_member_fields){
+      
+      $sql = "SELECT m.member_id, m.group_id, m.username, m.screen_name, m.email";
+      
+      //extend select statement to include custom member fields
+      if($custom_member_fields){
+        foreach($custom_member_fields as $key => $value){
+          $sql .= ",md.m_field_id_" . $value . " as '$key'";
+        }
+      }
+      $sql .= " FROM exp_members m";
+      
+      //join the member_data table to we can get the custom field data
+      if($custom_member_fields){
+        $sql .= " JOIN exp_member_data md ON (md.member_id = m.member_id)";
+      }
+      
+      $sql .= " WHERE m.member_id IN ($member_list)";
+      $sql .= " ORDER BY m.$orderby $sort"; 
+      
+      return $sql;
+      
     }
 
 
